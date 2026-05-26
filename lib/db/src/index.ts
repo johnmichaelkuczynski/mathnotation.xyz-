@@ -10,7 +10,18 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
-export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const connectionString = process.env.DATABASE_URL;
+
+// Enable SSL for managed providers (Neon, Render, Supabase, etc.).
+// Local URLs (localhost / 127.0.0.1) keep SSL off.
+const isLocal = /@(localhost|127\.0\.0\.1)[:/]/.test(connectionString);
+const sslDisabled = process.env.DATABASE_SSL === "false";
+const useSsl = !isLocal && !sslDisabled;
+
+export const pool = new Pool({
+  connectionString,
+  ...(useSsl ? { ssl: { rejectUnauthorized: false } } : {}),
+});
 export const db = drizzle(pool, { schema });
 
 export * from "./schema";

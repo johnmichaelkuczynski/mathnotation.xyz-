@@ -157,6 +157,7 @@ export function MathKeyboard({ onInsert, onBackspace, onClear }: MathKeyboardPro
 
       <div className="flex flex-col gap-4">
         {activeTabs.map(tab => {
+          if (!KEYBOARDS[tab]) return null;
           const isNumbers = tab === "Numbers";
           return (
             <div key={tab} className="flex flex-col gap-1.5">
