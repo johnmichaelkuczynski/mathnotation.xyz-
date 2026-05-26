@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, PenTool, BarChart3, Activity, RotateCcw } from "lucide-react";
+import { LayoutDashboard, PenTool, BarChart3, Activity, RotateCcw, Sparkles } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
 export function Sidebar() {
@@ -57,6 +57,31 @@ function TopBar() {
   const active = location.startsWith("/diagnostics");
   const qc = useQueryClient();
   const [resetting, setResetting] = useState(false);
+  const [expanding, setExpanding] = useState(false);
+
+  async function handleExpandLectures() {
+    if (
+      !confirm(
+        "Rewrite every lecture with worked examples? This runs the tutor over all 28 lectures and replaces their text in place. Takes about a minute.",
+      )
+    )
+      return;
+    setExpanding(true);
+    try {
+      const res = await fetch("/api/diagnostics/expand-lectures", { method: "POST" });
+      const data = (await res.json()) as { updated?: number; failed?: number; total?: number };
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await qc.invalidateQueries();
+      alert(
+        `Rewrote ${data.updated ?? 0} of ${data.total ?? 0} lectures.` +
+          (data.failed ? ` ${data.failed} failed.` : ""),
+      );
+    } catch (e) {
+      alert(`Lecture rewrite failed: ${(e as Error).message}`);
+    } finally {
+      setExpanding(false);
+    }
+  }
 
   async function handleReset() {
     if (
@@ -80,6 +105,16 @@ function TopBar() {
 
   return (
     <div className="sticky top-0 z-10 flex items-center justify-end gap-2 px-6 py-3 border-b border-border bg-background/80 backdrop-blur">
+      <button
+        onClick={handleExpandLectures}
+        disabled={expanding}
+        className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium border border-border hover:bg-secondary disabled:opacity-50"
+        data-testid="button-expand-lectures"
+        title="Rewrite every lecture with worked examples after each point"
+      >
+        <Sparkles className={`w-4 h-4 ${expanding ? "animate-pulse" : ""}`} />
+        {expanding ? "Rewriting…" : "Add examples to lectures"}
+      </button>
       <button
         onClick={handleReset}
         disabled={resetting}

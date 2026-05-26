@@ -409,6 +409,59 @@ router.post("/diagnostics/synthetic-run", async (_req, res) => {
   res.json({ ok, generatedAt: new Date().toISOString(), steps });
 });
 
+// ---------- Expand lectures: rewrite each lecture with worked examples ----------
+router.post("/diagnostics/expand-lectures", async (_req, res) => {
+  const lectures = await db
+    .select({
+      id: lecturesTable.id,
+      title: lecturesTable.title,
+      body: lecturesTable.body,
+    })
+    .from(lecturesTable)
+    .orderBy(asc(lecturesTable.id));
+
+  const sys =
+    "You are a college quantitative-reasoning lecturer rewriting your own lecture notes. " +
+    "Your job: take the SKELETON below and expand it into a complete teaching lecture for a college freshman who has never seen this material. " +
+    "RULES, no exceptions:\n" +
+    "1. KEEP every heading and every concept from the skeleton, in the same order, with the same names.\n" +
+    "2. After EVERY definition, rule, formula, or claim, immediately give at least one fully worked example with concrete numbers, showing every step. " +
+    "If a concept has subtleties or common confusions, give two or three examples that contrast them.\n" +
+    "3. Use Markdown. Use `## Example` (or `### Example 1`, `### Example 2`) sub-headings for examples so the student can find them. " +
+    "Show work as numbered steps. Inline math uses `$...$`, display math uses `$$...$$` (escape backslashes in LaTeX commands).\n" +
+    "4. Friendly, plain English. No filler, no hedging, no 'in conclusion'. Examples carry the load.\n" +
+    "5. Return ONLY the rewritten Markdown lecture body. No preface, no commentary, no code fences around the whole thing.\n" +
+    "6. Length: typically 3-6x the skeleton. Cover everything the skeleton covers and nothing else.";
+
+  let updated = 0;
+  let failed = 0;
+  const concurrency = 3;
+  for (let i = 0; i < lectures.length; i += concurrency) {
+    const batch = lectures.slice(i, i + concurrency);
+    await Promise.all(
+      batch.map(async (l) => {
+        try {
+          const user = `LECTURE TITLE: ${l.title}\n\nSKELETON:\n"""\n${l.body}\n"""`;
+          const expanded = await chatText(sys, user);
+          if (!expanded || expanded.trim().length < l.body.length) {
+            failed++;
+            return;
+          }
+          await db
+            .update(lecturesTable)
+            .set({ body: expanded.trim() })
+            .where(eq(lecturesTable.id, l.id));
+          updated++;
+        } catch {
+          failed++;
+        }
+      }),
+    );
+  }
+
+  res.json({ ok: failed === 0, updated, failed, total: lectures.length });
+});
+
 // ---------- Reset: wipe all student progress, keep course content ----------
 router.post("/diagnostics/reset", async (_req, res) => {
   // Delete in dependency order. Course content (topics, lectures, assignments,
