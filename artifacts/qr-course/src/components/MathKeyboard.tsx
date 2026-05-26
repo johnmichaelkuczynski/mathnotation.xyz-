@@ -14,8 +14,9 @@ const NUMBER_PAD: SymbolKey[] = [
 const KEYBOARDS: Record<string, SymbolKey[]> = {
   Numbers: NUMBER_PAD,
   Algebra: [
-    "x", "y", "z", "a", "b", "c", "=", "≠", "<", ">", "≤", "≥",
-    "+", "-", "·", "÷", "±", "√", "∛", "^2", "^3", "^n", "|x|", "!"
+    "=", "≠", "≈", "≡", "<", ">", "≤", "≥", "∝",
+    "x", "y", "z", "a", "b", "c", "n",
+    "+", "-", "·", "÷", "±", "√", "∛", "^2", "^3", "^n", "|x|", "!",
   ],
   Statistics: [
     "μ", "σ", "σ²", "s", "s²", "x̄", "p̂", "P(A)", "P(A|B)",
@@ -30,8 +31,9 @@ const KEYBOARDS: Record<string, SymbolKey[]> = {
     "≡", "≅", "≈", "∝", "mod", "⌊x⌋", "⌈x⌉", "gcd", "lcm"
   ],
   "Logic & Sets": [
-    "∀", "∃", "∄", "∧", "∨", "¬", "→", "↔", "⊕", "⊤", "⊥", "⊢", "⊨",
-    "∈", "∉", "⊂", "⊆", "⊄", "∪", "∩", "∅", "∖", "×",
+    "→", "↔", "⇒", "⇔", "¬", "∧", "∨", "⊕", "⊤", "⊥", "⊢", "⊨",
+    "∀", "∃", "∄", "∴", "∵",
+    "∈", "∉", "⊂", "⊆", "⊄", "⊇", "∪", "∩", "∅", "∖", "×",
     "A^c", "P(S)", "|S|", "ℵ₀", "ω", "ω₀",
   ],
   Trigonometry: [
@@ -98,26 +100,18 @@ interface MathKeyboardProps {
 }
 
 export function MathKeyboard({ onInsert, onBackspace, onClear }: MathKeyboardProps) {
-  const [activeTabs, setActiveTabs] = useState<KeyboardKey[]>(() => {
-    const saved = localStorage.getItem("math-keyboard-tabs-v2");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved) as string[];
-        return parsed.filter((t): t is KeyboardKey => t in KEYBOARDS);
-      } catch {}
-    }
-    return ["Numbers"];
+  const [activeTab, setActiveTab] = useState<KeyboardKey>(() => {
+    const saved = localStorage.getItem("math-keyboard-tab-v3");
+    if (saved && saved in KEYBOARDS) return saved as KeyboardKey;
+    return "Numbers";
   });
 
   useEffect(() => {
-    localStorage.setItem("math-keyboard-tabs-v2", JSON.stringify(activeTabs));
-  }, [activeTabs]);
+    localStorage.setItem("math-keyboard-tab-v3", activeTab);
+  }, [activeTab]);
 
-  const toggleTab = (tab: KeyboardKey) => {
-    setActiveTabs(prev =>
-      prev.includes(tab) ? prev.filter(t => t !== tab) : [...prev, tab]
-    );
-  };
+  const activeTabs: KeyboardKey[] = [activeTab];
+  const toggleTab = (tab: KeyboardKey) => setActiveTab(tab);
 
   const handleKey = (key: SymbolKey) => {
     if (typeof key === "string") {
@@ -144,7 +138,7 @@ export function MathKeyboard({ onInsert, onBackspace, onClear }: MathKeyboardPro
             type="button"
             onClick={() => toggleTab(tab)}
             className={`px-3 py-1 text-xs font-medium rounded-full transition-colors ${
-              activeTabs.includes(tab)
+              activeTab === tab
                 ? "bg-primary text-primary-foreground"
                 : "bg-background text-muted-foreground hover:bg-muted border border-border"
             }`}
@@ -188,11 +182,6 @@ export function MathKeyboard({ onInsert, onBackspace, onClear }: MathKeyboardPro
             </div>
           );
         })}
-        {activeTabs.length === 0 && (
-          <div className="text-sm text-muted-foreground text-center py-4">
-            Select a keyboard category above to show symbols.
-          </div>
-        )}
       </div>
     </div>
   );
