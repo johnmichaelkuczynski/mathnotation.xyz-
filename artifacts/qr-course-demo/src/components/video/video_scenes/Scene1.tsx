@@ -113,7 +113,7 @@ export function Scene1({ setCursorPos, setIsClicking }: { setCursorPos: (pos: {x
                   </motion.div>
                   <div className="bg-white/60 border border-border p-5 rounded-xl opacity-70">
                     <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Week 2</div>
-                    <h4 className="font-serif text-lg mb-2">Algebraic Reasoning</h4>
+                    <h4 className="font-serif text-lg mb-2">Calculus and change</h4>
                     <p className="text-sm text-muted-foreground">5 Lectures · 4 Assignments</p>
                   </div>
                 </div>
