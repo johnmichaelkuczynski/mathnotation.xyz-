@@ -24,15 +24,79 @@ const FAMILIES: string[][] = [
   ["|x|", "n!", "⌊x⌋", "⌈x⌉", "mod"],
 ];
 
+// LaTeX command -> unicode symbol the student would actually type.
+const LATEX_MAP: Record<string, string> = {
+  // integrals / sums / products
+  int: "∫", iint: "∬", iiint: "∭", oint: "∮",
+  sum: "∑", prod: "∏",
+  // calculus / change
+  partial: "∂", nabla: "∇", Delta: "Δ", delta: "δ",
+  infty: "∞", lim: "lim",
+  to: "→", rightarrow: "→", leftarrow: "←",
+  leftrightarrow: "↔", Rightarrow: "⇒", Leftrightarrow: "⇔",
+  mapsto: "↦",
+  // equality family
+  ne: "≠", neq: "≠", approx: "≈", equiv: "≡", cong: "≅", propto: "∝", sim: "∼",
+  // ordering
+  le: "≤", leq: "≤", ge: "≥", geq: "≥", ll: "≪", gg: "≫",
+  // arithmetic
+  pm: "±", mp: "∓", times: "×", div: "÷", cdot: "·", sqrt: "√",
+  // greek (lowercase + a few uppercase)
+  alpha: "α", beta: "β", gamma: "γ", Gamma: "Γ",
+  epsilon: "ε", varepsilon: "ε", zeta: "ζ", eta: "η",
+  theta: "θ", Theta: "Θ", iota: "ι", kappa: "κ",
+  lambda: "λ", Lambda: "Λ", mu: "μ", nu: "ν",
+  xi: "ξ", Xi: "Ξ", pi: "π", Pi: "Π",
+  rho: "ρ", sigma: "σ", Sigma: "Σ", tau: "τ",
+  upsilon: "υ", phi: "φ", varphi: "φ", Phi: "Φ",
+  chi: "χ", psi: "ψ", Psi: "Ψ", omega: "ω", Omega: "Ω",
+  // logic + sets
+  forall: "∀", exists: "∃", nexists: "∄",
+  in: "∈", notin: "∉", subset: "⊂", subseteq: "⊆",
+  supset: "⊃", supseteq: "⊇",
+  cup: "∪", cap: "∩", emptyset: "∅", setminus: "∖",
+  land: "∧", wedge: "∧", lor: "∨", vee: "∨",
+  neg: "¬", lnot: "¬", oplus: "⊕", top: "⊤", bot: "⊥",
+  therefore: "∴", because: "∵",
+  // blackboard sets
+  mathbbN: "ℕ", mathbbZ: "ℤ", mathbbQ: "ℚ", mathbbR: "ℝ", mathbbC: "ℂ",
+  // hats / bars (commonly seen in stats)
+  hat: "p̂", bar: "x̄",
+};
+
+function harvestLatex(source: string, into: Set<string>): void {
+  // \mathbb{R} -> mathbbR
+  const mathbbRe = /\\mathbb\{([NZQRC])\}/g;
+  let m: RegExpExecArray | null;
+  while ((m = mathbbRe.exec(source)) !== null) {
+    const sym = LATEX_MAP["mathbb" + m[1]];
+    if (sym) into.add(sym);
+  }
+  // \command (word characters only)
+  const cmdRe = /\\([A-Za-z]+)/g;
+  while ((m = cmdRe.exec(source)) !== null) {
+    const sym = LATEX_MAP[m[1]!];
+    if (sym) into.add(sym);
+  }
+  // raw ^ and _ -> hint at super/subscripts
+  if (/\^/.test(source)) into.add("²");
+  if (/_/.test(source)) into.add("₂");
+}
+
 const TOKEN_REGEX = /(P\(A\|B\)|P\(A\)|E\(X\)|Var\(X\)|σ²|x̄|p̂|Aᶜ|X ∼ N\(μ,σ²\)|[^\x00-\x7F]|[<>≤≥≠≈≡=±∓·×÷√∛∜∞])/gu;
 
 function harvest(source: string): string[] {
   if (!source) return [];
   const found = new Set<string>();
+
+  // 1. unicode + ascii operators
   const m = source.match(TOKEN_REGEX);
   if (m) m.forEach((s) => found.add(s));
 
-  // Expand each match to its full family
+  // 2. LaTeX commands (\int, \sum, \pi, \le, \mathbb{R}, etc.)
+  harvestLatex(source, found);
+
+  // 3. Expand each match to its full family
   const expanded = new Set<string>(found);
   for (const fam of FAMILIES) {
     if (fam.some((sym) => found.has(sym))) {
@@ -40,7 +104,7 @@ function harvest(source: string): string[] {
     }
   }
 
-  // Preserve a stable order: family-by-family, then any leftover originals
+  // 4. Stable order: family-by-family, then any leftover originals
   const order: string[] = [];
   const seen = new Set<string>();
   for (const fam of FAMILIES) {
