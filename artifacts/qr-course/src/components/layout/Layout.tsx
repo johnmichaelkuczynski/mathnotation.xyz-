@@ -1,7 +1,58 @@
 import React, { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, PenTool, BarChart3, Activity, RotateCcw, Sparkles } from "lucide-react";
+import { LayoutDashboard, PenTool, BarChart3, Activity, RotateCcw, Sparkles, LogIn, LogOut } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { Show, useClerk, useUser } from "@clerk/react";
+
+const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+function AuthControls() {
+  const { user } = useUser();
+  const { signOut } = useClerk();
+  const displayName =
+    user?.firstName ||
+    user?.primaryEmailAddress?.emailAddress ||
+    user?.username ||
+    "Account";
+
+  return (
+    <>
+      <Show when="signed-out">
+        <Link href="/sign-in">
+          <button
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium bg-primary text-primary-foreground hover:opacity-90"
+            data-testid="button-sign-in"
+          >
+            <LogIn className="w-4 h-4" />
+            Sign in
+          </button>
+        </Link>
+      </Show>
+      <Show when="signed-in">
+        <div className="flex items-center gap-2">
+          {user?.imageUrl ? (
+            <img
+              src={user.imageUrl}
+              alt=""
+              className="w-7 h-7 rounded-full border border-border object-cover"
+            />
+          ) : null}
+          <span className="text-sm text-muted-foreground max-w-[160px] truncate" title={displayName}>
+            {displayName}
+          </span>
+          <button
+            onClick={() => signOut({ redirectUrl: basePath || "/" })}
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium border border-border hover:bg-secondary"
+            data-testid="button-sign-out"
+          >
+            <LogOut className="w-4 h-4" />
+            Log out
+          </button>
+        </div>
+      </Show>
+    </>
+  );
+}
 
 export function Sidebar() {
   const [location] = useLocation();
@@ -141,6 +192,9 @@ function TopBar() {
           Diagnostic
         </button>
       </Link>
+      <div className="ml-2 pl-2 border-l border-border">
+        <AuthControls />
+      </div>
     </div>
   );
 }
