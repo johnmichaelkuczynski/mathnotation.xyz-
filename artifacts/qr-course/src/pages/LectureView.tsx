@@ -14,7 +14,6 @@ import { useParams, Link } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import { AnswerInput } from "@/components/AnswerInput";
-import { StarterQuestionCard } from "@/components/StarterQuestionCard";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, MessageSquare, Sparkles, Send, X, RefreshCw, CheckCircle2, XCircle } from "lucide-react";
 
@@ -275,27 +274,6 @@ function TutorPane({
   const ask = useAskTutor();
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
-  // Preloaded starter questions for this lecture
-  const [suggestions, setSuggestions] = useState<string[] | null>(null);
-  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
-  const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
-  const [dismissed, setDismissed] = useState<Set<number>>(new Set());
-
-  useEffect(() => {
-    if (lectureId == null) return;
-    setSuggestions(null);
-    setSuggestionsDismissed(false);
-    setDismissed(new Set());
-    setSuggestionsLoading(true);
-    fetch(`/api/tutor/suggestions/${lectureId}`)
-      .then((r) => r.json())
-      .then((data: { questions?: string[] }) => {
-        setSuggestions(data.questions ?? []);
-      })
-      .catch(() => setSuggestions([]))
-      .finally(() => setSuggestionsLoading(false));
-  }, [lectureId]);
-
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: 1e9, behavior: "smooth" });
   }, [history.length, ask.isPending]);
@@ -338,24 +316,6 @@ function TutorPane({
     sendMessage(msg);
   }
 
-  function submitAttempt(question: string, attempt: string) {
-    const a = attempt.trim();
-    if (!a) return;
-    const prompt =
-      `I'm trying to answer this starter question myself before you explain.\n\n` +
-      `QUESTION: ${question}\n\n` +
-      `MY ANSWER: ${a}\n\n` +
-      `Please (1) tell me clearly whether my answer is correct, partly correct, or wrong; ` +
-      `(2) point to the specific part of my reasoning that's right or off; ` +
-      `(3) then give the full correct answer with a brief worked example. ` +
-      `Keep it tight — don't restate the lecture.`;
-    sendMessage(prompt);
-  }
-
-  const visibleSuggestions = (suggestions ?? []).filter((_, i) => !dismissed.has(i));
-  const showSuggestions =
-    !suggestionsDismissed && (suggestionsLoading || visibleSuggestions.length > 0);
-
   return (
     <div className="flex-1 flex flex-col min-h-0">
       <div className="border-b border-border bg-background p-3 flex gap-2 items-end">
@@ -378,59 +338,7 @@ function TutorPane({
         </Button>
       </div>
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
-        {showSuggestions && (
-          <div className="bg-card border border-border rounded-lg p-3">
-            <div className="flex items-center justify-between mb-2">
-              <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Starter questions for this section
-              </div>
-              <button
-                onClick={() => setSuggestionsDismissed(true)}
-                className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
-                data-testid="button-dismiss-all-suggestions"
-              >
-                <X className="w-3 h-3" /> dismiss all
-              </button>
-            </div>
-            {suggestionsLoading ? (
-              <div className="text-sm text-muted-foreground italic">
-                Generating starter questions…
-              </div>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {(suggestions ?? []).map((q, i) => {
-                  if (dismissed.has(i)) return null;
-                  return (
-                    <StarterQuestionCard
-                      key={i}
-                      index={i}
-                      question={q}
-                      pending={ask.isPending}
-                      onSubmitAttempt={(attempt) => submitAttempt(q, attempt)}
-                      onShowAnswer={() =>
-                        sendMessage(
-                          `The student clicked "Just show me the answer" — they do NOT want Socratic hints. ` +
-                            `Provide the complete, direct, factually correct answer to the question below, ` +
-                            `in 3–6 sentences, with a one-line worked example or formula where it helps. ` +
-                            `Use $...$ for any math.\n\nQUESTION: ${q}`,
-                        )
-                      }
-                      onDismiss={() =>
-                        setDismissed((d) => {
-                          const n = new Set(d);
-                          n.add(i);
-                          return n;
-                        })
-                      }
-                    />
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
-
-        {history.length === 0 && !showSuggestions && (
+        {history.length === 0 && (
           <div className="m-auto text-center text-sm text-muted-foreground italic max-w-sm">
             Ask the tutor for an explanation, a worked example, or a hint. Highlight a passage on the left to ground the question in that text.
           </div>
