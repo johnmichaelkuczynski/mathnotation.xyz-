@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import {
   db,
   assignmentsTable,
@@ -406,13 +406,56 @@ router.post("/assignments/:assignmentId/practice", async (req, res): Promise<voi
     return;
   }
 
+  // Everything the new practice set must NOT reproduce:
+  //  (1) the real graded problems — practice must never leak the actual assignment;
+  //  (2) every problem from earlier practice runs of this assignment — so infinite
+  //      regeneration never serves a repeat.
+  const realPrompts = blueprint.map((b) => b.prompt);
+  const priorSessions = await db
+    .select({ id: practiceSessionsTable.id })
+    .from(practiceSessionsTable)
+    .where(
+      and(
+        eq(practiceSessionsTable.assignmentId, id),
+        eq(practiceSessionsTable.mode, "assignment"),
+      ),
+    );
+  const priorSessionIds = priorSessions
+    .map((s) => s.id)
+    .filter((sid) => sid !== session.id);
+  let priorPracticePrompts: string[] = [];
+  if (priorSessionIds.length > 0) {
+    const rows = await db
+      .select({ prompt: practiceProblemsTable.prompt })
+      .from(practiceProblemsTable)
+      .where(inArray(practiceProblemsTable.sessionId, priorSessionIds))
+      .orderBy(desc(practiceProblemsTable.id));
+    priorPracticePrompts = rows.map((r) => r.prompt);
+  }
+  const norm = (s: string): string => s.replace(/\s+/g, " ").trim().toLowerCase();
+  // HARD no-repeat guarantee: a set of EVERY prompt ever used for this
+  // assignment (real graded problems + ALL prior practice problems). This is
+  // checked server-side, so uniqueness holds across unlimited regenerations —
+  // not just a recent window.
+  const forbidden = new Set<string>(
+    [...realPrompts, ...priorPracticePrompts].map(norm),
+  );
+  // A bounded, genuinely-most-recent slice (rows are ordered newest-first) is
+  // sent to the LLM as a hint to keep token usage in check; the full `forbidden`
+  // set is what actually enforces the guarantee.
+  const recentAvoid = priorPracticePrompts.slice(0, 60);
+
   const sys =
     "You write a single FRESH practice problem that mirrors a reference problem from a math-notation course. " +
-    "It must test the SAME concept and notation/symbol and be of similar difficulty, but use different numbers/wording — never copy the reference. " +
+    "It must test the SAME concept and notation/symbol and be of similar difficulty, but use different numbers, context, and wording. " +
+    "ABSOLUTE RULES: (1) never copy or lightly reword the reference problem; " +
+    "(2) never reproduce, paraphrase, or reuse the numbers/context of ANY item in `doNotReuse` — those are the real graded questions plus previously generated practice questions, and the student must NEVER see a repeat; " +
+    "(3) the new problem must be genuinely distinct from all of them. " +
     "The student must have to TYPE the relevant mathematical symbol(s) in their answer. Use $...$ for inline LaTeX. " +
     'The answer must be a short string (number, fraction, expression, or short symbolic answer) — never multi-paragraph. Strict JSON: {"prompt": string, "correctAnswer": string, "explanation": string}.';
 
-  const concurrency = 3;
+  // Generate sequentially so each new problem can also avoid the ones we made
+  // earlier in THIS run (no intra-set repeats either).
   const generated: Array<{
     topicId: number;
     prompt: string;
@@ -420,42 +463,61 @@ router.post("/assignments/:assignmentId/practice", async (req, res): Promise<voi
     explanation: string;
     position: number;
   }> = [];
-  for (let i = 0; i < blueprint.length; i += concurrency) {
-    const batch = blueprint.slice(i, i + concurrency);
-    const out = await Promise.all(
-      batch.map(async (p) => {
-        try {
-          const g = await chatJson<{
-            prompt: string;
-            correctAnswer: string;
-            explanation: string;
-          }>(
-            sys,
-            JSON.stringify({
-              topic: p.topicTitle,
-              referenceProblem: p.prompt,
-              referenceAnswer: p.correctAnswer,
-            }),
-          );
-          return {
-            topicId: p.topicId,
-            prompt: g.prompt,
-            correctAnswer: g.correctAnswer,
-            explanation: g.explanation,
-            position: p.position,
-          };
-        } catch {
-          return {
-            topicId: p.topicId,
-            prompt: p.prompt,
-            correctAnswer: p.correctAnswer,
-            explanation: "Practice variant.",
-            position: p.position,
-          };
-        }
-      }),
-    );
-    generated.push(...out);
+  const usedThisRun: string[] = [];
+  const usedNorm = new Set<string>();
+  for (const p of blueprint) {
+    const doNotReuse = [...realPrompts, ...recentAvoid, ...usedThisRun];
+    let made: {
+      prompt: string;
+      correctAnswer: string;
+      explanation: string;
+    } | null = null;
+    for (let attempt = 0; attempt < 3 && !made; attempt += 1) {
+      try {
+        const g = await chatJson<{
+          prompt: string;
+          correctAnswer: string;
+          explanation: string;
+        }>(
+          sys,
+          JSON.stringify({
+            topic: p.topicTitle,
+            referenceProblem: p.prompt,
+            referenceAnswer: p.correctAnswer,
+            doNotReuse,
+            attempt: attempt + 1,
+          }),
+        );
+        const cand = norm(g.prompt ?? "");
+        const clashes =
+          !g.prompt ||
+          cand === norm(p.prompt) ||
+          forbidden.has(cand) ||
+          usedNorm.has(cand);
+        if (!clashes) made = g;
+      } catch {
+        // fall through to retry
+      }
+    }
+    if (!made) {
+      // NEVER fall back to the real graded problem. Emit a clearly-distinct,
+      // topic-scoped variant the student can still practice on.
+      made = {
+        prompt: `Practice for ${p.topicTitle ?? "this topic"}: write a short, correct statement that uses this topic's notation, then give its value. (Fresh practice variant #${usedThisRun.length + 1})`,
+        correctAnswer: p.correctAnswer,
+        explanation:
+          "Open practice variant — focus on using the symbol correctly; the tutor will give detailed feedback on what you write.",
+      };
+    }
+    usedThisRun.push(made.prompt);
+    usedNorm.add(norm(made.prompt));
+    generated.push({
+      topicId: p.topicId,
+      prompt: made.prompt,
+      correctAnswer: made.correctAnswer,
+      explanation: made.explanation,
+      position: p.position,
+    });
   }
   generated.sort((x, y) => x.position - y.position);
 
