@@ -61,12 +61,22 @@ export default function Assignments() {
                             <span className="font-semibold text-foreground">Score: {item.bestScore}%</span>
                           )}
                         </div>
-                        <Link href={`/assignments/${item.id}`}>
-                          <Button className="w-full" variant={item.status === 'submitted' ? "outline" : "default"}>
-                            {item.status === 'submitted' ? 'Review Results' : 
-                             item.status === 'in_progress' ? 'Resume' : 'Start'}
-                          </Button>
-                        </Link>
+                        <div className="flex flex-col gap-2">
+                          <Link href={`/practice/assignment/${item.id}`}>
+                            <Button className="w-full" variant="default" data-testid={`button-practice-${item.id}`}>
+                              ∞ Practice this first
+                            </Button>
+                          </Link>
+                          <Link href={`/assignments/${item.id}`}>
+                            <Button className="w-full" variant="outline">
+                              {item.status === 'submitted' ? 'Review Results' :
+                               item.status === 'in_progress' ? 'Resume graded attempt' : 'Take it for a grade'}
+                            </Button>
+                          </Link>
+                          <p className="text-xs text-muted-foreground text-center">
+                            Practice is infinite and never graded. The graded attempt counts.
+                          </p>
+                        </div>
                       </CardContent>
                     </Card>
                   ))}

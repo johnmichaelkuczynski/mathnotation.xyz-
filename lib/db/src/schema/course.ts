@@ -96,9 +96,15 @@ export const practiceSessionsTable = pgTable("practice_sessions", {
   id: serial("id").primaryKey(),
   weekNumber: integer("week_number"),
   topicId: integer("topic_id"),
+  // "topic" = adaptive single-problem drilling; "assignment" = a full practice
+  // twin of a graded assignment (mirrors its problem set).
+  mode: text("mode").notNull().default("topic"),
+  assignmentId: integer("assignment_id"),
   tutorEnabled: boolean("tutor_enabled").notNull().default(false),
   focusOnWeaknesses: boolean("focus_on_weaknesses").notNull().default(true),
   difficulty: doublePrecision("difficulty").notNull().default(2.0),
+  submittedAt: timestamp("submitted_at", { withTimezone: true }),
+  scorePercent: doublePrecision("score_percent"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -127,6 +133,25 @@ export const practiceAttemptsTable = pgTable("practice_attempts", {
   answer: text("answer").notNull(),
   correct: boolean("correct").notNull(),
   difficulty: doublePrecision("difficulty").notNull(),
+  feedback: jsonb("feedback"),
   trace: jsonb("trace"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Evolving learner profile: one row per answered question (practice OR graded).
+// This is the single stream the focus/analytics engine reads to produce
+// surgically precise, numbers-grounded pointers on what to study next.
+export const skillEventsTable = pgTable("skill_events", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id"),
+  topicId: integer("topic_id").notNull(),
+  // "practice" | "practice_assignment" | "graded"
+  source: text("source").notNull(),
+  assignmentId: integer("assignment_id"),
+  correct: boolean("correct").notNull(),
+  difficulty: doublePrecision("difficulty"),
+  flagged: boolean("flagged").notNull().default(false),
+  prompt: text("prompt"),
+  studentAnswer: text("student_answer"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

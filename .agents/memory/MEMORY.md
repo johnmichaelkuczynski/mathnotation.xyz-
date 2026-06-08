@@ -1,0 +1,1 @@
+- [API route conventions](api-conventions.md) — OpenAPI for stable typed CRUD vs. raw-fetch plain Express for AI/streaming; practice-submit guards (mode/409); skill_events.flagged must be logged after detect().

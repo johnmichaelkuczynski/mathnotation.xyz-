@@ -7,6 +7,9 @@ import {
   attemptsTable,
   answersTable,
   topicsTable,
+  practiceSessionsTable,
+  practiceProblemsTable,
+  skillEventsTable,
 } from "@workspace/db";
 import {
   GetAssignmentResponse,
@@ -18,6 +21,8 @@ import {
 } from "@workspace/api-zod";
 import { gradeAnswer } from "../lib/grading";
 import { detect } from "../lib/detection";
+import { chatJson } from "../lib/ai";
+import { getUserId } from "../lib/auth";
 
 const router: IRouter = Router();
 
@@ -288,6 +293,7 @@ router.post("/assignments/attempts/:attemptId/submit", async (req, res): Promise
       explanation: graded.explanation || p.explanation,
     });
 
+    let flagged = false;
     if (a && userAnswer.trim().length > 0) {
       const det = await detect(userAnswer, {
         keystrokeCount: a.keystrokeCount,
@@ -297,6 +303,7 @@ router.post("/assignments/attempts/:attemptId/submit", async (req, res): Promise
         rewriteSegments: a.rewriteSegments,
         durationMs: a.durationMs,
       });
+      flagged = Boolean(det.aiFlagged || det.diachronicFlagged);
       detection.push({ problemId: p.id, ...det });
       await db
         .update(answersTable)
@@ -315,6 +322,17 @@ router.post("/assignments/attempts/:attemptId/submit", async (req, res): Promise
         .set({ correct: graded.correct })
         .where(eq(answersTable.id, a.id));
     }
+
+    await db.insert(skillEventsTable).values({
+      userId: getUserId(req),
+      topicId: p.topicId,
+      source: "graded",
+      assignmentId: attempt.assignmentId,
+      correct: graded.correct,
+      flagged,
+      prompt: p.prompt,
+      studentAnswer: userAnswer,
+    });
   }
 
   const total = problems.length;
@@ -338,6 +356,139 @@ router.post("/assignments/attempts/:attemptId/submit", async (req, res): Promise
       detection,
     }),
   );
+});
+
+// Generate a fresh, infinite practice TWIN of a graded assignment: a new
+// problem set covering the same topics and difficulty as the real one, but with
+// brand-new problems each call. The tutor stays enabled for practice runs.
+router.post("/assignments/:assignmentId/practice", async (req, res): Promise<void> => {
+  const id = parseIdParam(req.params.assignmentId);
+  if (!Number.isFinite(id)) {
+    res.status(400).json({ error: "invalid id" });
+    return;
+  }
+  const [a] = await db.select().from(assignmentsTable).where(eq(assignmentsTable.id, id));
+  if (!a) {
+    res.status(404).json({ error: "assignment not found" });
+    return;
+  }
+  const blueprint = await db
+    .select({
+      id: problemsTable.id,
+      position: problemsTable.position,
+      prompt: problemsTable.prompt,
+      correctAnswer: problemsTable.correctAnswer,
+      topicId: problemsTable.topicId,
+      topicTitle: topicsTable.title,
+    })
+    .from(problemsTable)
+    .leftJoin(topicsTable, eq(problemsTable.topicId, topicsTable.id))
+    .where(eq(problemsTable.assignmentId, id))
+    .orderBy(asc(problemsTable.position));
+  if (blueprint.length === 0) {
+    res.status(400).json({ error: "assignment has no problems" });
+    return;
+  }
+
+  const [session] = await db
+    .insert(practiceSessionsTable)
+    .values({
+      mode: "assignment",
+      assignmentId: id,
+      weekNumber: a.weekNumber,
+      tutorEnabled: true,
+      focusOnWeaknesses: false,
+      difficulty: 3.0,
+    })
+    .returning();
+  if (!session) {
+    res.status(500).json({ error: "failed to create practice session" });
+    return;
+  }
+
+  const sys =
+    "You write a single FRESH practice problem that mirrors a reference problem from a math-notation course. " +
+    "It must test the SAME concept and notation/symbol and be of similar difficulty, but use different numbers/wording — never copy the reference. " +
+    "The student must have to TYPE the relevant mathematical symbol(s) in their answer. Use $...$ for inline LaTeX. " +
+    'The answer must be a short string (number, fraction, expression, or short symbolic answer) — never multi-paragraph. Strict JSON: {"prompt": string, "correctAnswer": string, "explanation": string}.';
+
+  const concurrency = 3;
+  const generated: Array<{
+    topicId: number;
+    prompt: string;
+    correctAnswer: string;
+    explanation: string;
+    position: number;
+  }> = [];
+  for (let i = 0; i < blueprint.length; i += concurrency) {
+    const batch = blueprint.slice(i, i + concurrency);
+    const out = await Promise.all(
+      batch.map(async (p) => {
+        try {
+          const g = await chatJson<{
+            prompt: string;
+            correctAnswer: string;
+            explanation: string;
+          }>(
+            sys,
+            JSON.stringify({
+              topic: p.topicTitle,
+              referenceProblem: p.prompt,
+              referenceAnswer: p.correctAnswer,
+            }),
+          );
+          return {
+            topicId: p.topicId,
+            prompt: g.prompt,
+            correctAnswer: g.correctAnswer,
+            explanation: g.explanation,
+            position: p.position,
+          };
+        } catch {
+          return {
+            topicId: p.topicId,
+            prompt: p.prompt,
+            correctAnswer: p.correctAnswer,
+            explanation: "Practice variant.",
+            position: p.position,
+          };
+        }
+      }),
+    );
+    generated.push(...out);
+  }
+  generated.sort((x, y) => x.position - y.position);
+
+  const stored = await db
+    .insert(practiceProblemsTable)
+    .values(
+      generated.map((g) => ({
+        sessionId: session.id,
+        topicId: g.topicId,
+        prompt: g.prompt,
+        correctAnswer: g.correctAnswer,
+        explanation: g.explanation,
+        difficulty: 3.0,
+      })),
+    )
+    .returning();
+
+  const topicTitleById = new Map(blueprint.map((b) => [b.topicId, b.topicTitle]));
+  res.json({
+    sessionId: session.id,
+    assignmentId: id,
+    title: a.title,
+    kind: a.kind,
+    weekNumber: a.weekNumber,
+    instructions: a.instructions,
+    problems: stored.map((p, idx) => ({
+      id: p.id,
+      position: idx + 1,
+      prompt: p.prompt,
+      topicId: p.topicId,
+      topicTitle: topicTitleById.get(p.topicId) ?? null,
+    })),
+  });
 });
 
 export default router;

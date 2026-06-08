@@ -21,6 +21,7 @@ import LectureView from "@/pages/LectureView";
 import AssignmentRunner from "@/pages/AssignmentRunner";
 import Diagnostics from "@/pages/Diagnostics";
 import TopicPractice from "@/pages/TopicPractice";
+import PracticeAssignmentRunner from "@/pages/PracticeAssignmentRunner";
 
 const queryClient = new QueryClient();
 
@@ -152,6 +153,7 @@ function Router() {
       <Route path="/weeks/:weekNumber" component={WeekView} />
       <Route path="/lectures/:lectureId" component={LectureView} />
       <Route path="/practice/topic/:topicId" component={TopicPractice} />
+      <Route path="/practice/assignment/:assignmentId" component={PracticeAssignmentRunner} />
       <Route component={NotFound} />
     </Switch>
   );

@@ -67,3 +67,68 @@ export async function gradeAnswer(opts: {
     };
   }
 }
+
+export type RichFeedback = {
+  verdict: string;
+  whatYouDid: string;
+  whyRightWrong: string;
+  theConcept: string;
+  symbolNote: string;
+  commonMistakes: string[];
+  workedSolution: string;
+  studyNext: string[];
+};
+
+// Heavy, structured per-question feedback used on practice work. Always returns
+// something usable even if the model call fails.
+export async function richFeedback(opts: {
+  prompt: string;
+  correctAnswer: string;
+  userAnswer: string;
+  correct: boolean;
+  topicTitle?: string;
+  explanation?: string;
+}): Promise<RichFeedback> {
+  const fallback: RichFeedback = {
+    verdict: opts.correct ? "Correct." : "Not quite.",
+    whatYouDid: opts.userAnswer.trim()
+      ? `You answered: ${opts.userAnswer}`
+      : "You left this blank.",
+    whyRightWrong: opts.correct
+      ? "Your answer matches the expected result."
+      : `The expected answer is ${opts.correctAnswer}.`,
+    theConcept: opts.explanation || "",
+    symbolNote: "",
+    commonMistakes: [],
+    workedSolution: opts.explanation || `The correct answer is ${opts.correctAnswer}.`,
+    studyNext: opts.correct ? [] : [opts.topicTitle ? `Review ${opts.topicTitle}.` : "Review this topic."],
+  };
+
+  try {
+    const out = await chatJson<RichFeedback>(
+      "You are a demanding but encouraging college math-notation tutor giving DETAILED feedback on ONE practice problem. " +
+        "The student is practicing typing mathematical symbols correctly. Be specific and generous with detail — this is practice, so teach hard. " +
+        "Write ALL math as LaTeX inline `$...$` or display `$$...$$`. Pay special attention to NOTATION: whether the student used the right symbol, subscripts/superscripts, Greek letters, set/logic symbols, etc. " +
+        'Respond as strict JSON with EXACTLY these keys: {"verdict": string (one punchy line), "whatYouDid": string (restate their attempt), "whyRightWrong": string (2-4 sentences on exactly why it is right or where it broke), "theConcept": string (the underlying idea, 2-4 sentences), "symbolNote": string (1-3 sentences specifically about the notation/symbol involved and how to type it), "commonMistakes": string[] (2-4 short bullets), "workedSolution": string (full step-by-step solution), "studyNext": string[] (2-4 concrete, specific things to practice next)}.',
+      JSON.stringify({
+        topic: opts.topicTitle ?? null,
+        prompt: opts.prompt,
+        correct_answer: opts.correctAnswer,
+        student_answer: opts.userAnswer,
+        graded_correct: opts.correct,
+      }),
+    );
+    return {
+      verdict: out.verdict || fallback.verdict,
+      whatYouDid: out.whatYouDid || fallback.whatYouDid,
+      whyRightWrong: out.whyRightWrong || fallback.whyRightWrong,
+      theConcept: out.theConcept || fallback.theConcept,
+      symbolNote: out.symbolNote || fallback.symbolNote,
+      commonMistakes: Array.isArray(out.commonMistakes) ? out.commonMistakes.slice(0, 6) : [],
+      workedSolution: out.workedSolution || fallback.workedSolution,
+      studyNext: Array.isArray(out.studyNext) ? out.studyNext.slice(0, 6) : fallback.studyNext,
+    };
+  } catch {
+    return fallback;
+  }
+}

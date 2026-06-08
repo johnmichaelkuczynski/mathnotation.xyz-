@@ -14,6 +14,8 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AnswerInput } from "@/components/AnswerInput";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
+import { FocusPointers } from "@/components/FocusPointers";
+import { Infinity as InfinityIcon } from "lucide-react";
 
 export default function AssignmentRunner() {
   const params = useParams();
@@ -33,21 +35,25 @@ export default function AssignmentRunner() {
   const [currentProblemIdx, setCurrentProblemIdx] = useState(0);
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [result, setResult] = useState<AttemptResult | null>(null);
+  const [started, setStarted] = useState(false);
 
-  useEffect(() => {
-    if (assignmentId && !attemptId && !startAttempt.isPending && !result) {
-      startAttempt.mutate({ assignmentId }, {
-        onSuccess: (data) => {
-          setAttemptId(data.id);
-          const initialAnswers: Record<number, string> = {};
-          data.answers.forEach(a => {
-            initialAnswers[a.problemId] = a.answer;
-          });
-          setAnswers(initialAnswers);
-        }
-      });
+  const beginGradedAttempt = () => {
+    if (attemptId || startAttempt.isPending) {
+      setStarted(true);
+      return;
     }
-  }, [assignmentId, attemptId, startAttempt, result]);
+    startAttempt.mutate({ assignmentId }, {
+      onSuccess: (data) => {
+        setAttemptId(data.id);
+        const initialAnswers: Record<number, string> = {};
+        data.answers.forEach(a => {
+          initialAnswers[a.problemId] = a.answer;
+        });
+        setAnswers(initialAnswers);
+        setStarted(true);
+      }
+    });
+  };
 
   const handleAnswerChange = (problemId: number, val: string, trace: KeystrokeTrace) => {
     setAnswers(prev => ({ ...prev, [problemId]: val }));
@@ -135,6 +141,52 @@ export default function AssignmentRunner() {
                 )}
               </div>
             ))}
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
+  if (!started) {
+    return (
+      <Layout>
+        <div className="p-8 max-w-3xl mx-auto w-full flex flex-col gap-6 pb-24">
+          <div className="flex items-center justify-between">
+            <h1 className="text-3xl font-serif font-bold text-primary">{assignment.title}</h1>
+            <Link href="/assignments">
+              <Button variant="ghost" size="sm">Back</Button>
+            </Link>
+          </div>
+          <p className="text-muted-foreground">
+            This is the <strong>graded</strong> version — it counts. Before you start, here's exactly
+            where you stand based on everything you've practiced so far.
+          </p>
+
+          <FocusPointers assignmentId={assignmentId} />
+
+          <div className="rounded-lg border border-primary/30 bg-primary/5 p-5 flex flex-col gap-3">
+            <div className="flex items-center gap-2 font-semibold">
+              <InfinityIcon className="w-5 h-5 text-primary" />
+              Not sure yet? Practice first — it's infinite and never graded.
+            </div>
+            <p className="text-sm text-muted-foreground">
+              The practice version has the same concepts and symbols with brand-new problems, plus
+              detailed per-question feedback and a tutor you can argue with. Take it as many times as
+              you want.
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <Link href={`/practice/assignment/${assignmentId}`}>
+                <Button>∞ Practice this first</Button>
+              </Link>
+              <Button
+                variant="outline"
+                onClick={beginGradedAttempt}
+                disabled={startAttempt.isPending}
+                data-testid="button-begin-graded"
+              >
+                {startAttempt.isPending ? "Starting…" : "I'm ready — begin graded attempt"}
+              </Button>
+            </div>
           </div>
         </div>
       </Layout>

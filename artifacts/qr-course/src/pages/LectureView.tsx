@@ -53,18 +53,66 @@ export default function LectureView() {
   const [tab, setTab] = useState<"tutor" | "practice">("tutor");
   const [level, setLevel] = useState<"short" | "medium" | "long">("short");
 
+  // On-the-spot generated bodies (per this lecture), keyed by level. Seeded from
+  // whatever the lecture already has so we never regenerate what exists.
+  const [generated, setGenerated] = useState<{ medium?: string; long?: string }>({});
+  const [generating, setGenerating] = useState<null | "medium" | "long">(null);
+  const [genError, setGenError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setGenerated({});
+    setGenError(null);
+    setLevel("short");
+  }, [lectureId]);
+
+  const mediumBody = lecture?.bodyMedium || generated.medium;
+  const longBody = lecture?.bodyLong || generated.long;
+
   const availableLevels = useMemo(() => {
     const out: Array<"short" | "medium" | "long"> = ["short"];
-    if (lecture?.bodyMedium) out.push("medium");
-    if (lecture?.bodyLong) out.push("long");
+    if (mediumBody) out.push("medium");
+    if (longBody) out.push("long");
     return out;
-  }, [lecture?.bodyMedium, lecture?.bodyLong]);
+  }, [mediumBody, longBody]);
+
+  async function selectLevel(target: "short" | "medium" | "long") {
+    if (target === "short") {
+      setLevel("short");
+      return;
+    }
+    const existing = target === "medium" ? mediumBody : longBody;
+    if (existing) {
+      setLevel(target);
+      return;
+    }
+    if (lectureId == null || generating) return;
+    setGenerating(target);
+    setGenError(null);
+    try {
+      const res = await fetch(`/api/course/lectures/${lectureId}/expand?level=${target}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: "{}",
+      });
+      if (!res.ok) throw new Error(`Failed to generate ${target} version (${res.status})`);
+      const data = (await res.json()) as { body?: string; bodyMedium?: string; bodyLong?: string };
+      const body =
+        (target === "medium" ? data.bodyMedium : data.bodyLong) ?? data.body ?? "";
+      setGenerated((g) => ({ ...g, [target]: body }));
+      setLevel(target);
+    } catch (e) {
+      setGenError((e as Error).message);
+    } finally {
+      setGenerating(null);
+    }
+  }
 
   const activeBody =
-    level === "long" && lecture?.bodyLong
-      ? lecture.bodyLong
-      : level === "medium" && lecture?.bodyMedium
-        ? lecture.bodyMedium
+    level === "long" && longBody
+      ? longBody
+      : level === "medium" && mediumBody
+        ? mediumBody
         : (lecture?.body ?? "");
 
   return (
@@ -101,34 +149,43 @@ export default function LectureView() {
                   </div>
                   <div className="inline-flex rounded-md border border-border overflow-hidden text-xs">
                     {(["short", "medium", "long"] as const).map((lvl) => {
-                      const enabled = availableLevels.includes(lvl);
+                      const ready = availableLevels.includes(lvl);
                       const active = level === lvl;
+                      const isGenerating = generating === lvl;
                       return (
                         <button
                           key={lvl}
-                          onClick={() => enabled && setLevel(lvl)}
-                          disabled={!enabled}
+                          onClick={() => selectLevel(lvl)}
+                          disabled={generating !== null}
                           title={
-                            enabled
+                            ready
                               ? `${lvl[0].toUpperCase() + lvl.slice(1)} version`
-                              : `${lvl[0].toUpperCase() + lvl.slice(1)} version not generated yet — click "Generate medium + long lectures" in the top bar`
+                              : `Generate the ${lvl} version of this lecture now`
                           }
-                          className={`px-3 py-1.5 font-medium uppercase tracking-wider transition-colors ${
+                          className={`px-3 py-1.5 font-medium uppercase tracking-wider transition-colors disabled:opacity-60 ${
                             active
                               ? "bg-primary text-primary-foreground"
-                              : enabled
-                                ? "bg-background hover:bg-secondary text-foreground"
-                                : "bg-background/50 text-muted-foreground/50 cursor-not-allowed"
+                              : "bg-background hover:bg-secondary text-foreground"
                           }`}
                           data-testid={`button-level-${lvl}`}
                         >
-                          {lvl}
+                          {isGenerating ? "…" : ready || lvl === "short" ? lvl : `+ ${lvl}`}
                         </button>
                       );
                     })}
                   </div>
                 </div>
               </header>
+              {genError && (
+                <div className="mb-3 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-xs text-destructive">
+                  {genError}
+                </div>
+              )}
+              {generating && (
+                <div className="mb-3 rounded-md border border-border bg-secondary/40 p-2 text-xs text-muted-foreground animate-pulse">
+                  Generating the {generating} version of this lecture…
+                </div>
+              )}
               <div className="bg-card border shadow-sm rounded-lg p-6 md:p-8" ref={articleRef}>
                 <MarkdownRenderer content={activeBody} />
                 <div className="mt-6 pt-4 border-t border-dashed border-border text-xs text-muted-foreground italic">

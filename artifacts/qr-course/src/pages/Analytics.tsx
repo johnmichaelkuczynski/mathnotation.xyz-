@@ -10,6 +10,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
+import { FocusPointers } from "@/components/FocusPointers";
 import { useLocation } from "wouter";
 import { ChevronRight } from "lucide-react";
 
@@ -40,6 +41,8 @@ export default function Analytics() {
             {generateReport.isPending ? "Generating..." : "Generate Narrative Report"}
           </Button>
         </div>
+
+        <FocusPointers />
 
         {report && (
           <Card className="border-primary bg-primary/5">

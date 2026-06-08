@@ -19,6 +19,20 @@ export async function chatText(
   return resp.choices[0]?.message?.content?.trim() ?? "";
 }
 
+export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
+
+export async function chatMessages(
+  messages: ChatMessage[],
+  model: string = TEXT_MODEL,
+): Promise<string> {
+  const resp = await openai.chat.completions.create({
+    model,
+    max_completion_tokens: 4096,
+    messages,
+  });
+  return resp.choices[0]?.message?.content?.trim() ?? "";
+}
+
 export async function chatJson<T = unknown>(
   system: string,
   user: string,
