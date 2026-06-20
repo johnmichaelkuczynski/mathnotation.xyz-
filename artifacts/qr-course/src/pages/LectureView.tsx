@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   useGetLecture,
+  useGetCourseOverview,
   useAskTutor,
   useStartPracticeSession,
   useNextPracticeProblem,
@@ -10,23 +11,89 @@ import {
   type KeystrokeTrace,
 } from "@workspace/api-client-react";
 import { Layout } from "@/components/layout/Layout";
-import { useParams, Link } from "wouter";
+import { useParams, Link, useLocation } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import { AnswerInput } from "@/components/AnswerInput";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, MessageSquare, Sparkles, Send, X, RefreshCw, CheckCircle2, XCircle } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight, MessageSquare, Sparkles, Send, X, RefreshCw, CheckCircle2, XCircle } from "lucide-react";
 
 type ChatMsg = { role: "user" | "tutor"; text: string };
+
+function LectureNav({
+  prevId,
+  nextId,
+  onGo,
+  position,
+}: {
+  prevId: number | null;
+  nextId: number | null;
+  onGo: (id: number) => void;
+  position: "top" | "bottom";
+}) {
+  if (prevId == null && nextId == null) return null;
+  return (
+    <nav className="flex items-center justify-between gap-3">
+      {prevId != null ? (
+        <Button
+          variant="outline"
+          onClick={() => onGo(prevId)}
+          data-testid={`button-prev-lecture-${position}`}
+          aria-label="Previous lecture"
+        >
+          <ChevronLeft className="w-4 h-4 mr-1.5" />
+          Previous lecture
+        </Button>
+      ) : (
+        <span />
+      )}
+      {nextId != null ? (
+        <Button
+          variant="outline"
+          onClick={() => onGo(nextId)}
+          data-testid={`button-next-lecture-${position}`}
+          aria-label="Next lecture"
+        >
+          Next lecture
+          <ChevronRight className="w-4 h-4 ml-1.5" />
+        </Button>
+      ) : (
+        <span />
+      )}
+    </nav>
+  );
+}
 
 export default function LectureView() {
   const params = useParams();
   const lectureId = Number(params.lectureId);
   const { data: lecture, isLoading } = useGetLecture(lectureId);
+  const { data: overview } = useGetCourseOverview();
+  const [, navigate] = useLocation();
+
+  // Flat, in-order list of every lecture id across all weeks, used to find the
+  // previous/next lecture relative to the one being viewed.
+  const orderedIds = useMemo<number[]>(() => {
+    if (!overview) return [];
+    return overview.weeks.flatMap((w) => w.lectures.map((l) => l.id));
+  }, [overview]);
+  const currentIndex = orderedIds.indexOf(lectureId);
+  const prevId = currentIndex > 0 ? orderedIds[currentIndex - 1] : null;
+  const nextId =
+    currentIndex >= 0 && currentIndex < orderedIds.length - 1
+      ? orderedIds[currentIndex + 1]
+      : null;
 
   // shared selected-text state (used by both Tutor and Practice)
   const [selectedText, setSelectedText] = useState("");
   const articleRef = useRef<HTMLDivElement | null>(null);
+  const leftColRef = useRef<HTMLDivElement | null>(null);
+
+  // Jump back to the top of the lecture column whenever the lecture changes, so
+  // hitting "Next lecture" from the bottom shows the new lecture from the start.
+  useEffect(() => {
+    leftColRef.current?.scrollTo({ top: 0 });
+  }, [lectureId]);
 
   useEffect(() => {
     function onSelect() {
@@ -127,7 +194,7 @@ export default function LectureView() {
 
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-0 min-h-0">
         {/* LEFT: lecture */}
-        <div className="overflow-y-auto px-8 pb-16 border-r border-border">
+        <div ref={leftColRef} className="overflow-y-auto px-8 pb-16 border-r border-border">
           {isLoading ? (
             <div className="flex flex-col gap-6 mt-4">
               <Skeleton className="h-12 w-3/4" />
@@ -138,6 +205,14 @@ export default function LectureView() {
             </div>
           ) : lecture ? (
             <article>
+              <div className="mt-2 mb-4">
+                <LectureNav
+                  prevId={prevId}
+                  nextId={nextId}
+                  onGo={(id) => navigate(`/lectures/${id}`)}
+                  position="top"
+                />
+              </div>
               <header className="mb-6 mt-2">
                 <h1 className="text-3xl font-serif font-bold text-primary mb-3 leading-tight">
                   {lecture.title}
@@ -190,6 +265,14 @@ export default function LectureView() {
                 <div className="mt-6 pt-4 border-t border-dashed border-border text-xs text-muted-foreground italic">
                   Tip: highlight any passage above to ask the tutor about it, or to generate practice problems specifically on what you selected.
                 </div>
+              </div>
+              <div className="mt-6">
+                <LectureNav
+                  prevId={prevId}
+                  nextId={nextId}
+                  onGo={(id) => navigate(`/lectures/${id}`)}
+                  position="bottom"
+                />
               </div>
             </article>
           ) : (
